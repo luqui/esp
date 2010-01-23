@@ -1,35 +1,81 @@
+{-# LANGUAGE PatternGuards #-}
+
 import qualified Graphics.Vty.Widgets.All as W
 import qualified Graphics.Vty as W
 import Control.Applicative
 import Data.Monoid (Monoid(..))
 import ESP.UI
 import ESP.Command
+import qualified ESP.Parser as P
+import Data.Function (fix)
+import Debug.Trace
+import Control.Monad (MonadPlus(..))
 
-keepAttr = W.Attr { W.style = W.KeepCurrent, W.fore_color = W.KeepCurrent, W.back_color = W.KeepCurrent }
-highlightAttr = keepAttr { W.style = W.SetTo 4 }
 
+defaultAttr = W.Attr { W.style = W.SetTo 0, W.fore_color = W.SetTo W.white, W.back_color = W.SetTo W.black }
+highlightAttr = defaultAttr { W.style = W.SetTo 0, W.fore_color = W.SetTo W.black, W.back_color = W.SetTo W.white }
 
-editText :: String -> Command UserInput String String
-editText = go
+inputParser :: P.Parser Char a -> Command UserInput String a
+inputParser = \p -> fix (go "" p)
     where
-    go cur = More cur $ \(UserInput key _) ->
+    go inp (P.Get c) undo = More inp $ \(UserInput key _) ->
+        let this = go inp (P.Get c) undo in
         case key of
-            W.KASCII ch -> go (cur ++ [ch])
-            W.KBS -> go (safeInit cur)
-            W.KEnter -> Done cur
-            _ -> go cur
-    safeInit xs | null xs = []
-                | otherwise = init xs
+            W.KASCII ch -> go (inp ++ [ch]) (c ch) this
+            W.KBS -> undo
+            _ -> this
+    go inp (P.Result r P.Fail) undo = Done r
+    go inp (P.Result r p') undo = More inp $ \i@(UserInput key _) -> 
+            case key of
+                W.KEnter -> Done r
+                _ -> putback i (go inp p' undo )
+    go inp P.Fail undo = undo
 
-textEditor :: String -> UI UserInput W.AnyWidget
-textEditor text0 = UI (text highlightAttr text0) $ \(UserInput key _) ->
-    case key of
-        W.KASCII 'e' -> runCommand textEditor (mapCommand (text keepAttr) (editText text0))
-        W.KASCII 'c' -> runCommand textEditor (mapCommand (text keepAttr) (editText ""))
-        _ -> textEditor text0
+parseDefnLhs :: P.Parser Char String
+parseDefnLhs = do
+    x <- P.identifier
+    P.whitespace
+    P.symbol "="
+    return x
+
+inputDecl :: UI UserInput W.AnyWidget
+inputDecl =
+    runCommand (\s -> (text defaultAttr (s ++ " = ") <++>) <$> inputExpr) $ 
+        mapCommand itext (inputParser parseDefnLhs)
+
+data ExprHead
+    = Lambda String
+    | Parens
+    | Variable String
+
+parseExprHead :: P.Parser Char ExprHead
+parseExprHead = (P.symbol "(" *> pure Parens) 
+        `mplus` (Lambda <$> lambda) 
+        `mplus` (Variable <$> P.identifier)
+    where
+    lambda = P.symbol "\\" *> P.identifier <* P.symbol "."
+
+inputExpr :: UI UserInput W.AnyWidget
+inputExpr =
+    runCommand cont $ mapCommand itext (inputParser parseExprHead)
+    where
+    cont (Lambda vname) = (text defaultAttr ("\\" ++ vname ++ ". ") <++>) <$> inputExpr
+    cont Parens = parenify <$> inputExpr
+    cont (Variable s) = (text defaultAttr (s ++ " ") <++>) <$> inputExpr
+    parenify x = text defaultAttr "(" <++> x <++> text defaultAttr ")"
+
+nothing :: UI UserInput W.AnyWidget
+nothing = UI (text defaultAttr "") (const nothing)
+
+(<++>) :: W.AnyWidget -> W.AnyWidget -> W.AnyWidget
+x <++> y = W.anyWidget (x W.<++> y)
+(<-->) :: W.AnyWidget -> W.AnyWidget -> W.AnyWidget
+x <--> y = W.anyWidget (x W.<--> y)
+
+itext :: String -> W.AnyWidget
+itext s = text defaultAttr s <++> text highlightAttr " " <++> text defaultAttr " "
 
 text :: W.Attr -> String -> W.AnyWidget
 text attr = W.anyWidget . W.text attr
- 
 
-main = runVty (textEditor "")
+main = runVty inputDecl

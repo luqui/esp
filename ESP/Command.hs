@@ -31,6 +31,10 @@ zipCommand f (Done a) _ = Done a
 zipCommand f _ (Done a) = Done a
 zipCommand f (More o c) (More o' c') = More (f o o') (liftA2 (zipCommand f) c c')
 
+putback :: i -> Command i o a -> Command i o a
+putback x (Done a) = Done a
+putback x (More o c) = c x
+
 runCommand :: (a -> UI i o) -> Command i o a -> UI i o
 runCommand f (Done x) = f x
 runCommand f (More o c) = UI o (runCommand f . c)
