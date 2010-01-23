@@ -22,14 +22,14 @@ instance Applicative (Command i o) where
     pure = return
     (<*>) = ap
 
-instance Monoid o => Monoid (Command i o a) where
-    Done x `mappend` _ = Done x
-    _ `mappend` Done x = Done x
-    More o c `mappend` More o' c' = More (o `mappend` o') (liftA2 mappend c c')
-
 mapCommand :: (o -> o') -> Command i o a -> Command i o' a
 mapCommand f (Done x) = Done x
 mapCommand f (More o c) = More (f o) ((fmap.mapCommand) f c)
+
+zipCommand :: (o -> o' -> o'') -> Command i o a -> Command i o' a -> Command i o'' a
+zipCommand f (Done a) _ = Done a
+zipCommand f _ (Done a) = Done a
+zipCommand f (More o c) (More o' c') = More (f o o') (liftA2 (zipCommand f) c c')
 
 runCommand :: (a -> UI i o) -> Command i o a -> UI i o
 runCommand f (Done x) = f x

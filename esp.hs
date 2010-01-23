@@ -4,7 +4,6 @@ import Control.Applicative
 import Data.Monoid (Monoid(..))
 import ESP.UI
 import ESP.Command
-import ESP.Parser
 
 keepAttr = W.Attr { W.style = W.KeepCurrent, W.fore_color = W.KeepCurrent, W.back_color = W.KeepCurrent }
 highlightAttr = keepAttr { W.style = W.SetTo 4 }
