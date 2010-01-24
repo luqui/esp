@@ -16,6 +16,18 @@ data AST
     | AHole
     deriving (Show)
 
+alphaConvert :: String -> String -> AST -> AST
+alphaConvert from to (AApp t u) = AApp (alphaConvert from to t) (alphaConvert from to u)
+alphaConvert from to (ALam v t)
+    | v == from = ALam v t
+    | v == to   = ALam v t  -- XXX capture
+    | otherwise = ALam v (alphaConvert from to t)
+alphaConvert from to (AVar v)
+    | v == to = AVar v      -- XXX capture
+    | v == from = AVar to
+    | otherwise = AVar v
+alphaConvert from to AHole = AHole
+
 data Complexity = Simple | Application | Lambda
     deriving (Eq,Ord)
 
@@ -76,7 +88,9 @@ mkEditor ast = More (highlight $ concrete ast) $ \ui@(UserInput key _) ->
             _ -> mkEditor (AApp t u)
     go (ALam v t) (UserInput key _) =
         case key of
-            W.KASCII 'h' -> mkEditor . (`ALam` t) =<< mapCommand (`cLam` concrete t) (identifier " ." v)
+            W.KASCII 'h' -> do
+                v' <- mapCommand (\v' -> v' `cLam` concrete (alphaConvert v v' t)) (identifier " ." v)
+                mkEditor (ALam v' (alphaConvert v v' t))
             W.KASCII 'l' -> mkEditor . (ALam v) =<< mapCommand (cLam v) (mkEditor t)
             _ -> mkEditor (ALam v t)
     go (AVar v) (UserInput key _) =
@@ -87,8 +101,14 @@ mkEditor ast = More (highlight $ concrete ast) $ \ui@(UserInput key _) ->
     go AHole ui@(UserInput key _) =
         case key of
             W.KASCII ch | Char.isAlpha ch -> activeVarEditor [ch]
-            W.KASCII '\\' -> mkEditor (ALam "" AHole)
+            W.KASCII '\\' -> activeLambdaEditor
             _ -> mkEditor AHole
+
+activeLambdaEditor :: Editor AST
+activeLambdaEditor = do
+    v <- mapCommand (`cLam` concrete AHole) (identifier " ." "")
+    t <- mapCommand (cLam v) (mkEditor AHole)
+    mkEditor (ALam v t)
 
 activeVarEditor :: String -> Editor AST
 activeVarEditor v = mkEditor . AVar =<< mapCommand (addCursor . cVar) (identifier " " v)
