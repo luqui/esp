@@ -25,6 +25,7 @@ alphaConvert from to (ALam v t)
     | v == to && from `Set.member` freeVars t  = 
         let v' = primeId (freeVars t) v in 
         alphaConvert from to (ALam v' (alphaConvert v v' t))
+    | v == to = ALam v t
     | otherwise = ALam v (alphaConvert from to t)
 alphaConvert from to (AVar v)
     | v == to = AVar ("*!" ++ v ++ "!*")  -- indicates that we have captured this variable
@@ -108,6 +109,7 @@ mkEditor :: AST -> Editor AST
 mkEditor ast = More (highlight $ concrete ast) $ \ui@(UserInput key _) ->
         case key of
             W.KASCII ' ' -> mkEditor . (ast `AApp`) =<< mapCommand (concrete ast `cApp`) (mkEditor AHole)
+            W.KASCII 'C' -> mkEditor AHole
             W.KEnter -> Done ast
             _ -> go ast ui
     where
