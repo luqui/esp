@@ -21,6 +21,7 @@ concrete (AApp t u) = C.app (concrete t) (concrete u)
 concrete (ALam v t) = C.lam v (concrete t)
 concrete (AVar v) = C.var v
 concrete AHole = C.hole
+concrete (ALet var t body) = C.let_ var (concrete t) (concrete body)
 
 type Pattern = UserInput -> Bool
 
@@ -87,7 +88,7 @@ mkEditor ast = do
         ]
     go (ALam v t) = pattern [
             ascii 'h' --> do
-                v' <- mapCommand (\v' -> v' `C.lam` concrete (alphaConvert v v' t)) (identifier " ." v)
+                v' <- mapCommand (\v' -> C.lam v' (concrete (alphaConvert v v' t))) (identifier " ." v)
                 mkEditor (ALam v' (alphaConvert v v' t)),
             ascii 'l' --> mkEditor . (ALam v) =<< mapCommand (C.lam v) (mkEditor t),
             __        --> mkEditor (ALam v t)
@@ -100,7 +101,26 @@ mkEditor ast = do
     go AHole = \(UserInput key _) -> case key of
             W.KASCII ch | Char.isAlpha ch -> activeVarEditor [ch]
             W.KASCII '\\' -> activeLambdaEditor
+            W.KASCII '=' -> activeLetEditor
             _ -> mkEditor AHole
+    go (ALet v t body) = pattern [
+            ascii 'h' --> do
+                v' <- mapCommand (\v' -> C.let_ v' (concrete t) (concrete (alphaConvert v v' body))) (identifier " " v)
+                mkEditor (ALet v' t (alphaConvert v v' body)),
+            ascii 'l' --> do
+                t' <- mapCommand (\t' -> C.let_ v t' (concrete body)) (mkEditor t)
+                mkEditor (ALet v t' body),
+            ascii 'j' --> mkEditor . (ALet v t) =<< mapCommand (C.let_ v (concrete t)) (mkEditor body),
+            __        --> mkEditor (ALet v t body)
+        ]
+                
+
+activeLetEditor :: Editor AST
+activeLetEditor = do
+    v <- mapCommand (\v' -> C.let_ v' (concrete AHole) (concrete AHole)) (identifier " " "")
+    t <- mapCommand (\t' -> C.let_ v t' (concrete AHole)) (mkEditor AHole)
+    body <- mapCommand (C.let_ v (concrete t)) (mkEditor AHole)
+    return (ALet v t body)
 
 activeLambdaEditor :: Editor AST
 activeLambdaEditor = do

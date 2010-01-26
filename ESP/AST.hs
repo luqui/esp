@@ -7,6 +7,7 @@ data AST
     | ALam String AST
     | AVar String
     | AHole
+    | ALet String AST AST
     deriving (Show)
 
 alphaConvert :: String -> String -> AST -> AST
@@ -24,12 +25,16 @@ alphaConvert from to (AVar v)
     | v == from = AVar to
     | otherwise = AVar v
 alphaConvert from to AHole = AHole
+alphaConvert from to (ALet v t body) = 
+    let ALam v' body' = alphaConvert from to (ALam v body)
+    in ALet v' (alphaConvert from to t) body'
 
 freeVars :: AST -> Set.Set String
 freeVars (AApp t u) = freeVars t `Set.union` freeVars u
 freeVars (ALam v t) = Set.delete v (freeVars t)
 freeVars (AVar v) = Set.singleton v
 freeVars AHole = Set.empty
+freeVars (ALet v t body) = Set.delete v (freeVars body) `Set.union` freeVars t
 
 primeId :: Set.Set String -> String -> String
 primeId frees x | x `Set.member` frees = primeId frees (x ++ "'")
@@ -47,6 +52,9 @@ substitute var to (AVar v)
     | var == v = to
     | otherwise = AVar v
 substitute var to AHole = AHole
+substitute var to (ALet v t body) =
+    let ALam v' body' = substitute var to (ALam v body)
+    in ALet v' (substitute var to t) body'
 
 betaExpand :: AST -> AST
 betaExpand (AApp (ALam v t) u) = substitute v u t
