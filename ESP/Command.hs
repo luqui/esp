@@ -1,9 +1,9 @@
-module ESP.Command (Command, input, mapCommand, putBack, runCommand) where
+module ESP.Command (Command, input, mapCommand, putBack, runCommand, repeatCommand) where
 
 import Control.Applicative
 import ESP.UI
 import Data.Monoid (Monoid(..))
-import Control.Monad (ap, (>=>))
+import Control.Monad (ap, (>=>), forever)
 
 data Command i o a 
     = Done a
@@ -29,10 +29,14 @@ mapCommand :: (o -> o') -> Command i o a -> Command i o' a
 mapCommand f (Done x) = Done x
 mapCommand f (More o c) = More (f o) ((fmap.mapCommand) f c)
 
+
 putBack :: i -> Command i o a -> Command i o a
 putBack x (Done a) = Done a
 putBack x (More o c) = c x
 
 runCommand :: (a -> UI i o) -> Command i o a -> UI i o
 runCommand f (Done x) = f x
-runCommand f (More o c) = UI o (runCommand f . c)
+runCommand f (More o c) = display o (runCommand f . c)
+
+repeatCommand :: Command i o a -> UI i o
+repeatCommand = runCommand undefined . forever

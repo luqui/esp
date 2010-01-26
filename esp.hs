@@ -153,9 +153,8 @@ activeVarEditor v = mkEditor . AVar =<< mapCommand (addCursor . cVar) (identifie
     where
     addCursor (CSyn w c) = CSyn (w <++> text highlightAttr " ") c
 
-commandTest :: (Show a) => Editor a -> UI UserInput W.AnyWidget
-commandTest editor = runCommand (\a -> UI (text highlightAttr (show a)) (const (commandTest (return a)))) 
-                                (mapCommand (\(CSyn w _) -> w <++> text defaultAttr " ") editor)
+commandTest :: Editor a -> UI UserInput W.AnyWidget
+commandTest editor = (\(CSyn w _) -> w <++> text defaultAttr " ") <$> repeatCommand editor
 
 (<++>) :: W.AnyWidget -> W.AnyWidget -> W.AnyWidget
 x <++> y = W.anyWidget (x W.<++> y)

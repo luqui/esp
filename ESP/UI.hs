@@ -1,4 +1,4 @@
-module ESP.UI where
+module ESP.UI (UI, cofmapUI, display, UserInput(..), runVty) where
 
 import qualified Graphics.Vty.Widgets.All as W
 import qualified Graphics.Vty as W
@@ -15,6 +15,9 @@ instance Applicative (UI a) where
 
 cofmapUI :: (a -> b) -> UI b c -> UI a c
 cofmapUI f (UI x0 xt) = UI x0 (cofmapUI f . xt . f)
+
+display :: b -> (a -> UI a b) -> UI a b
+display = UI
 
 
 data UserInput = UserInput W.Key [W.Modifier]
