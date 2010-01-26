@@ -1,4 +1,4 @@
-module ESP.Command where
+module ESP.Command (Command, input, mapCommand, putBack, runCommand) where
 
 import Control.Applicative
 import ESP.UI
@@ -22,18 +22,16 @@ instance Applicative (Command i o) where
     pure = return
     (<*>) = ap
 
+input :: o -> Command i o i
+input o = More o Done
+
 mapCommand :: (o -> o') -> Command i o a -> Command i o' a
 mapCommand f (Done x) = Done x
 mapCommand f (More o c) = More (f o) ((fmap.mapCommand) f c)
 
-zipCommand :: (o -> o' -> o'') -> Command i o a -> Command i o' a -> Command i o'' a
-zipCommand f (Done a) _ = Done a
-zipCommand f _ (Done a) = Done a
-zipCommand f (More o c) (More o' c') = More (f o o') (liftA2 (zipCommand f) c c')
-
-putback :: i -> Command i o a -> Command i o a
-putback x (Done a) = Done a
-putback x (More o c) = c x
+putBack :: i -> Command i o a -> Command i o a
+putBack x (Done a) = Done a
+putBack x (More o c) = c x
 
 runCommand :: (a -> UI i o) -> Command i o a -> UI i o
 runCommand f (Done x) = f x

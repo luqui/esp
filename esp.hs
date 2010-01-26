@@ -46,6 +46,7 @@ primeId frees x | x `Set.member` frees = primeId frees (x ++ "'")
 substitute :: String -> AST -> AST -> AST
 substitute var to (AApp t u) = AApp (substitute var to t) (substitute var to u)
 substitute var to (ALam v t) 
+    | var == v = ALam v t
     | v `Set.member` freeVars to = 
         let v' = primeId (freeVars to `Set.union` freeVars t) v in
         substitute var to (ALam v' (alphaConvert v v' t))
@@ -95,10 +96,11 @@ highlightAttr = defaultAttr { W.style = W.SetTo 0, W.fore_color = W.SetTo W.blac
 identifier :: [Char] -> String -> Command UserInput String String
 identifier seps = go
     where
-    go inp = More inp $ \(UserInput key _) ->
+    go inp = do
+        UserInput key _ <- input inp
         case key of
-            W.KEnter -> Done inp
-            W.KASCII ch | ch `elem` seps -> Done inp
+            W.KEnter -> return inp
+            W.KASCII ch | ch `elem` seps -> return inp
                         | otherwise      -> go (inp ++ [ch])
             W.KBS -> go (safeInit inp)
             _ -> go inp
@@ -106,11 +108,12 @@ identifier seps = go
     safeInit xs = init xs
 
 mkEditor :: AST -> Editor AST
-mkEditor ast = More (highlight $ concrete ast) $ \ui@(UserInput key _) ->
+mkEditor ast = do
+        ui@(UserInput key _) <- input (highlight $ concrete ast)
         case key of
             W.KASCII ' ' -> mkEditor . (ast `AApp`) =<< mapCommand (concrete ast `cApp`) (mkEditor AHole)
-            W.KASCII 'C' -> mkEditor AHole
-            W.KEnter -> Done ast
+            W.KDel -> mkEditor AHole
+            W.KEnter -> return ast
             _ -> go ast ui
     where
     go (AApp t u) (UserInput key _) =
@@ -151,8 +154,8 @@ activeVarEditor v = mkEditor . AVar =<< mapCommand (addCursor . cVar) (identifie
     addCursor (CSyn w c) = CSyn (w <++> text highlightAttr " ") c
 
 commandTest :: (Show a) => Editor a -> UI UserInput W.AnyWidget
-commandTest (Done a) = UI (text highlightAttr (show a)) (const (commandTest (Done a)))
-commandTest (More (CSyn w _) c) = UI (w <++> text defaultAttr " ") (commandTest . c)
+commandTest editor = runCommand (\a -> UI (text highlightAttr (show a)) (const (commandTest (return a)))) 
+                                (mapCommand (\(CSyn w _) -> w <++> text defaultAttr " ") editor)
 
 (<++>) :: W.AnyWidget -> W.AnyWidget -> W.AnyWidget
 x <++> y = W.anyWidget (x W.<++> y)
