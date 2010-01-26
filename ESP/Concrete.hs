@@ -9,7 +9,7 @@ data Prec = PSimple | PApp | PLam
 data ConcreteExp = ConcreteExp Prec W.AnyWidget
 
 app :: ConcreteExp -> ConcreteExp -> ConcreteExp
-app t u = ConcreteExp PApp (parensC PApp t <++> text defaultAttr " " <++> parensC PLam u)
+app t u = ConcreteExp PApp (parensC PApp t <++> text defaultAttr " " <++> parensC PSimple u)
 
 lam :: String -> ConcreteExp -> ConcreteExp
 lam v t = ConcreteExp PLam (text defaultAttr ("\\" ++ v ++ ". ") <++> parensC PLam t)

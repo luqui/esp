@@ -9,6 +9,7 @@ import ESP.AST
 import qualified ESP.Concrete as C
 import ESP.WidgetUtils
 import qualified Data.Char as Char
+import Data.List (sort,nub)
 
 type Editor = Command UserInput C.ConcreteExp
 
@@ -21,6 +22,36 @@ concrete (ALam v t) = C.lam v (concrete t)
 concrete (AVar v) = C.var v
 concrete AHole = C.hole
 
+type Pattern = UserInput -> Bool
+
+ascii :: Char -> Pattern
+ascii ch (UserInput (W.KASCII key) mods)
+    | Char.isUpper ch && ch == key && mods == [W.MShift] = True
+    | ch == key && mods == [] = True
+    | otherwise = False
+ascii _ _ = False
+
+key :: W.Key -> [W.Modifier] -> Pattern
+key key mods (UserInput key' mods')
+    | key == key' && norm mods == norm mods' = True
+    | otherwise = False
+    where
+    norm = nub . sort
+
+__ :: Pattern
+__ = const True
+
+match :: UserInput -> [(Pattern,a)] -> a
+match ui = foldr match (error "No match")
+    where
+    match (pat,r) def
+        | pat ui = r
+        | otherwise = def
+
+pattern = flip match
+
+infix 0 -->
+(-->) = (,)
 
 identifier :: [Char] -> String -> Command UserInput String String
 identifier seps = go
@@ -38,35 +69,35 @@ identifier seps = go
 
 mkEditor :: AST -> Editor AST
 mkEditor ast = do
-        ui@(UserInput key _) <- input (C.highlight $ concrete ast)
-        case key of
-            W.KASCII ' ' -> mkEditor . (ast `AApp`) =<< mapCommand (concrete ast `C.app`) (mkEditor AHole)
-            W.KDel -> mkEditor AHole
-            W.KEnter -> return ast
-            _ -> go ast ui
+        ui <- input (C.highlight $ concrete ast)
+        match ui [
+            ascii ' ' --> mkEditor . (ast `AApp`) =<< mapCommand (concrete ast `C.app`) (mkEditor AHole),
+            key W.KDel [] --> mkEditor AHole,
+            key W.KEnter [] --> return ast,
+            __ --> go ast ui
+         ]
     where
-    go (AApp t u) (UserInput key _) =
-        case key of
-            W.KASCII 'h' -> mkEditor . (`AApp` u) =<< mapCommand (`C.app` concrete u) (mkEditor t)
-            W.KASCII 'l' -> mkEditor . (t `AApp`) =<< mapCommand (concrete t `C.app`) (mkEditor u)
-            W.KASCII 'H' -> mkEditor t
-            W.KASCII 'L' -> mkEditor u
-            W.KASCII 'b' -> mkEditor (betaExpand (AApp t u))
-            _ -> mkEditor (AApp t u)
-    go (ALam v t) (UserInput key _) =
-        case key of
-            W.KASCII 'h' -> do
+    go (AApp t u) = pattern [
+            ascii 'h' --> mkEditor . (`AApp` u) =<< mapCommand (`C.app` concrete u) (mkEditor t),
+            ascii 'l' --> mkEditor . (t `AApp`) =<< mapCommand (concrete t `C.app`) (mkEditor u),
+            ascii 'H' --> mkEditor t,
+            ascii 'L' --> mkEditor u,
+            ascii 'b' --> mkEditor (betaExpand (AApp t u)),
+            __        --> mkEditor (AApp t u)
+        ]
+    go (ALam v t) = pattern [
+            ascii 'h' --> do
                 v' <- mapCommand (\v' -> v' `C.lam` concrete (alphaConvert v v' t)) (identifier " ." v)
-                mkEditor (ALam v' (alphaConvert v v' t))
-            W.KASCII 'l' -> mkEditor . (ALam v) =<< mapCommand (C.lam v) (mkEditor t)
-            _ -> mkEditor (ALam v t)
-    go (AVar v) (UserInput key _) =
-        case key of
-            W.KASCII 'c' -> activeVarEditor ""
-            W.KASCII 'e' -> activeVarEditor v
-            _ -> mkEditor (AVar v)
-    go AHole ui@(UserInput key _) =
-        case key of
+                mkEditor (ALam v' (alphaConvert v v' t)),
+            ascii 'l' --> mkEditor . (ALam v) =<< mapCommand (C.lam v) (mkEditor t),
+            __        --> mkEditor (ALam v t)
+        ]
+    go (AVar v) = pattern [
+            ascii 'c' --> activeVarEditor "",
+            ascii 'e' --> activeVarEditor v,
+            __        --> mkEditor (AVar v)
+        ]
+    go AHole = \(UserInput key _) -> case key of
             W.KASCII ch | Char.isAlpha ch -> activeVarEditor [ch]
             W.KASCII '\\' -> activeLambdaEditor
             _ -> mkEditor AHole
