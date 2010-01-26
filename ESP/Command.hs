@@ -2,7 +2,6 @@ module ESP.Command (Command, input, mapCommand, putBack, runCommand, repeatComma
 
 import Control.Applicative
 import ESP.UI
-import Data.Monoid (Monoid(..))
 import Control.Monad (ap, (>=>), forever)
 
 data Command i o a 
