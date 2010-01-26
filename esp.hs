@@ -6,42 +6,21 @@ import Control.Applicative
 import ESP.UI
 import ESP.Command
 import ESP.AST
+import qualified ESP.Concrete as C
+import ESP.WidgetUtils
 import qualified Data.Char as Char
 
-type Editor = Command UserInput CSyn
+type Editor = Command UserInput C.ConcreteExp
 
 data Complexity = Simple | Application | Lambda
     deriving (Eq,Ord)
 
-data CSyn = CSyn W.AnyWidget Complexity
+concrete :: AST -> C.ConcreteExp
+concrete (AApp t u) = C.app (concrete t) (concrete u)
+concrete (ALam v t) = C.lam v (concrete t)
+concrete (AVar v) = C.var v
+concrete AHole = C.hole
 
-cApp :: CSyn -> CSyn -> CSyn
-cApp t u = CSyn (parensC Application t <++> text defaultAttr " " <++> parensC Simple u) Application
-
-cLam :: String -> CSyn -> CSyn
-cLam v t = CSyn (text defaultAttr ("\\" ++ v ++ ". ") <++> parensC Lambda t) Lambda
-
-cVar :: String -> CSyn
-cVar v = CSyn (text defaultAttr v) Simple
-
-cHole :: CSyn
-cHole = CSyn (text defaultAttr "[]") Simple
-
-concrete :: AST -> CSyn
-concrete (AApp t u) = cApp (concrete t) (concrete u)
-concrete (ALam v t) = cLam v (concrete t)
-concrete (AVar v) = cVar v
-concrete AHole = cHole
-
-highlight :: CSyn -> CSyn
-highlight (CSyn w c) = CSyn (W.withAttribute w highlightAttr) c
-
-parensC c (CSyn t c') 
-    | c' <= c = t
-    | otherwise  = text defaultAttr "(" <++> t <++> text defaultAttr ")"
-
-defaultAttr = W.Attr { W.style = W.SetTo 0, W.fore_color = W.SetTo W.white, W.back_color = W.SetTo W.black }
-highlightAttr = defaultAttr { W.style = W.SetTo 0, W.fore_color = W.SetTo W.black, W.back_color = W.SetTo W.white }
 
 identifier :: [Char] -> String -> Command UserInput String String
 identifier seps = go
@@ -59,17 +38,17 @@ identifier seps = go
 
 mkEditor :: AST -> Editor AST
 mkEditor ast = do
-        ui@(UserInput key _) <- input (highlight $ concrete ast)
+        ui@(UserInput key _) <- input (C.highlight $ concrete ast)
         case key of
-            W.KASCII ' ' -> mkEditor . (ast `AApp`) =<< mapCommand (concrete ast `cApp`) (mkEditor AHole)
+            W.KASCII ' ' -> mkEditor . (ast `AApp`) =<< mapCommand (concrete ast `C.app`) (mkEditor AHole)
             W.KDel -> mkEditor AHole
             W.KEnter -> return ast
             _ -> go ast ui
     where
     go (AApp t u) (UserInput key _) =
         case key of
-            W.KASCII 'h' -> mkEditor . (`AApp` u) =<< mapCommand (`cApp` concrete u) (mkEditor t)
-            W.KASCII 'l' -> mkEditor . (t `AApp`) =<< mapCommand (concrete t `cApp`) (mkEditor u)
+            W.KASCII 'h' -> mkEditor . (`AApp` u) =<< mapCommand (`C.app` concrete u) (mkEditor t)
+            W.KASCII 'l' -> mkEditor . (t `AApp`) =<< mapCommand (concrete t `C.app`) (mkEditor u)
             W.KASCII 'H' -> mkEditor t
             W.KASCII 'L' -> mkEditor u
             W.KASCII 'b' -> mkEditor (betaExpand (AApp t u))
@@ -77,9 +56,9 @@ mkEditor ast = do
     go (ALam v t) (UserInput key _) =
         case key of
             W.KASCII 'h' -> do
-                v' <- mapCommand (\v' -> v' `cLam` concrete (alphaConvert v v' t)) (identifier " ." v)
+                v' <- mapCommand (\v' -> v' `C.lam` concrete (alphaConvert v v' t)) (identifier " ." v)
                 mkEditor (ALam v' (alphaConvert v v' t))
-            W.KASCII 'l' -> mkEditor . (ALam v) =<< mapCommand (cLam v) (mkEditor t)
+            W.KASCII 'l' -> mkEditor . (ALam v) =<< mapCommand (C.lam v) (mkEditor t)
             _ -> mkEditor (ALam v t)
     go (AVar v) (UserInput key _) =
         case key of
@@ -94,27 +73,14 @@ mkEditor ast = do
 
 activeLambdaEditor :: Editor AST
 activeLambdaEditor = do
-    v <- mapCommand (`cLam` concrete AHole) (identifier " ." "")
-    t <- mapCommand (cLam v) (mkEditor AHole)
+    v <- mapCommand (`C.lam` concrete AHole) (identifier " ." "")
+    t <- mapCommand (C.lam v) (mkEditor AHole)
     mkEditor (ALam v t)
 
 activeVarEditor :: String -> Editor AST
-activeVarEditor v = mkEditor . AVar =<< mapCommand (addCursor . cVar) (identifier " " v)
-    where
-    addCursor (CSyn w c) = CSyn (w <++> text highlightAttr " ") c
+activeVarEditor v = mkEditor . AVar =<< mapCommand (C.highlight . C.var) (identifier " " v)
 
 commandTest :: Editor a -> UI UserInput W.AnyWidget
-commandTest editor = (\(CSyn w _) -> w <++> text defaultAttr " ") <$> repeatCommand editor
-
-(<++>) :: W.AnyWidget -> W.AnyWidget -> W.AnyWidget
-x <++> y = W.anyWidget (x W.<++> y)
-(<-->) :: W.AnyWidget -> W.AnyWidget -> W.AnyWidget
-x <--> y = W.anyWidget (x W.<--> y)
-
-itext :: String -> W.AnyWidget
-itext s = text defaultAttr s <++> text highlightAttr " " <++> text defaultAttr " "
-
-text :: W.Attr -> String -> W.AnyWidget
-text attr = W.anyWidget . W.text attr
+commandTest editor = (\c -> C.getWidget c <++> text defaultAttr " ") <$> repeatCommand editor
 
 main = runVty (commandTest (mkEditor AHole))
